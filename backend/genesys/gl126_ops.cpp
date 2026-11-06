@@ -232,6 +232,7 @@ void do_poll(Wire& wire, const Op& op, std::size_t idx, RunResult& out,
 
         unsigned elapsed = wire.now_ms() - start;
         if (elapsed > poll_budget_ms(op, policy.poll_timeout_ms, policy)) {
+            out.timed_out = PollRecord{idx, first, last, polls, elapsed};
             std::ostringstream oss;
             oss << "gl126_ops: PollDataReady at op " << idx << " (DATAENB, reg 0x101) "
                 << "timed out after " << elapsed << "ms: first 0x" << std::hex
@@ -362,6 +363,7 @@ void do_poll_class(Wire& wire, const Op& op, std::size_t idx, RunResult& out,
 
         unsigned elapsed = wire.now_ms() - start;
         if (elapsed > poll_budget_ms(op, policy.class_timeout_ms, policy)) {
+            out.timed_out = PollRecord{idx, first, last, polls, elapsed};
             std::ostringstream oss;
             oss << "gl126_ops: PollClass at op " << idx << " (reg 0x100) "
                 << "timed out after " << elapsed << "ms: first 0x" << std::hex
@@ -403,6 +405,7 @@ void do_poll_masked(Wire& wire, const Op& op, std::size_t idx, RunResult& out,
 
         unsigned elapsed = wire.now_ms() - start;
         if (elapsed > poll_budget_ms(op, policy.masked_timeout_ms, policy)) {
+            out.timed_out = PollRecord{idx, first, last, polls, elapsed};
             std::ostringstream oss;
             oss << "gl126_ops: PollMasked at op " << idx << " (mask 0x" << std::hex
                 << static_cast<int>(op.mask) << " want 0x" << static_cast<int>(op.want)

@@ -34,6 +34,7 @@
 #include <cerrno>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <array>
@@ -978,8 +979,13 @@ EdgeWaitOutcome wait_for_magazine_edge(Genesys_Device* dev)
         } else {
             if (present) {
                 if (++present_consec >= kEdgePresentReadsNeeded) {
-                    DBG(DBG_info, "gl126: magazine edge seen (%u polls, ~%u ms); "
-                        "settling %u ms\n", polls, polls * kEdgePollIntervalMs, kEdgeSettleMs);
+                    /* With the status word the edge was seen on, for a load
+                       that fails after it. Reg 0x01 and regs 0x3b/0x3c are
+                       not read at the edge (only after the settle, logged
+                       there), and reading them here would add transfers. */
+                    DBG(DBG_info, "gl126: magazine edge seen (%u polls, ~%u ms, last reg 0x101 "
+                        "0x%02x); settling %u ms\n", polls, polls * kEdgePollIntervalMs, status,
+                        kEdgeSettleMs);
                     dev->interface->sleep_ms(kEdgeSettleMs);
                     return EdgeWaitOutcome::Seen;
                 }
@@ -1114,6 +1120,71 @@ std::size_t masked_poll_op_index(const OpProgram& prog, unsigned nth)
     return static_cast<std::size_t>(-1);
 }
 
+/** What a failed magazine program saw before op `failed_op` ended it.
+    Only logs what the run already read: the polls before it (logged on
+    success too, but a failure skipped them), the poll that timed out,
+    and the last status words (regs 0x100/0x101) the program's own Read
+    ops returned. */
+void log_failed_magazine_run(const char* name, const OpProgram& prog, const RunResult& out,
+                             std::size_t failed_op)
+{
+    if (out.polls.empty()) {
+        DBG(DBG_info, "gl126: magazine %s: no poll completed before op %zu\n", name, failed_op);
+    }
+    for (const PollRecord& p : out.polls) {
+        // A best-effort poll is recorded whether it matched or ran out
+        // of time and the program went on; say which.
+        const Op& op = prog.ops[p.op_index];
+        const bool gave_up = op.kind == OpKind::PollBestEffort && (p.last & op.mask) != op.want;
+        DBG(DBG_info, "gl126: magazine %s op %zu poll (%s before op %zu): first 0x%02x "
+            "last 0x%02x, %u polls, %u ms\n", name, p.op_index,
+            gave_up ? "best effort, timed out and continued" : "completed", failed_op,
+            p.first, p.last, p.polls, p.elapsed_ms);
+    }
+    if (out.timed_out.polls != 0) {
+        const PollRecord& p = out.timed_out;
+        DBG(DBG_info, "gl126: magazine %s op %zu poll timed out: first 0x%02x last 0x%02x, "
+            "%u polls, %u ms\n", name, p.op_index, p.first, p.last, p.polls, p.elapsed_ms);
+    }
+    // wValue 0x018e with wIndex 0x0022 / 0x0122 reads reg 0x100 / 0x101.
+    // BulkDone replies are in out.reads too, but at other wIndex values.
+    const ReadRecord* reg100 = nullptr;
+    const ReadRecord* reg101 = nullptr;
+    for (const ReadRecord& r : out.reads) {
+        if (r.value == 0x018e && r.index == 0x0022 && r.reply_len >= 1) {
+            reg100 = &r;
+        } else if (r.value == 0x018e && r.index == 0x0122 && r.reply_len >= 1) {
+            reg101 = &r;
+        }
+    }
+    char word100[40] = "reg 0x100 not read";
+    char word101[40] = "reg 0x101 not read";
+    if (reg100 != nullptr) {
+        std::snprintf(word100, sizeof(word100), "reg 0x100 = 0x%02x (op %zu)",
+                      reg100->reply[0], reg100->op_index);
+    }
+    if (reg101 != nullptr) {
+        std::snprintf(word101, sizeof(word101), "reg 0x101 = 0x%02x (op %zu)",
+                      reg101->reply[0], reg101->op_index);
+    }
+    DBG(DBG_info, "gl126: magazine %s: last status words read by Read ops (not polls) before "
+        "op %zu: %s, %s\n", name, failed_op, word100, word101);
+}
+
+/** LOAD's op 0 reads reg 0x32 (wValue 0x008e wIndex 0x3222), the first
+    thing LOAD reads, after the settle (and, on the ejected path, after
+    OPEN). Logged whether or not the load then succeeds; the read itself
+    is LOAD's own, nothing is read here. */
+void log_load_reg32(const RunResult& load_result)
+{
+    for (const ReadRecord& r : load_result.reads) {
+        if (r.op_index == 0 && r.value == 0x008e && r.index == 0x3222 && r.reply_len >= 1) {
+            DBG(DBG_info, "gl126: magazine load op 0 read reg 0x32: 0x%02x (captured 0x%02x)\n",
+                r.reply[0], r.captured[0]);
+        }
+    }
+}
+
 void run_magazine_program(Genesys_Device* dev, const char* name, RunResult& out,
                           std::size_t* failed_op = nullptr)
 {
@@ -1134,6 +1205,7 @@ void run_magazine_program(Genesys_Device* dev, const char* name, RunResult& out,
         if (failed_op != nullptr) {
             *failed_op = e.op_index;
         }
+        log_failed_magazine_run(name, *prog, out, e.op_index);
         const char* what = "I/O failure";
         SANE_Status status = SANE_STATUS_IO_ERROR;
         switch (e.failure) {
@@ -1466,6 +1538,8 @@ void magazine_load_film_impl(Genesys_Device* dev)
     std::uint8_t reg01_now = dev->interface->read_register(REG_0x01);
     std::uint8_t reg3b = dev->interface->read_register(0x3B);
     std::uint8_t reg3c = dev->interface->read_register(0x3C);
+    DBG(DBG_info, "gl126: magazine after the settle: reg 0x101 = 0x%02x, reg 0x01 = 0x%02x, "
+        "regs 0x3b/0x3c = 0x%02x/0x%02x\n", sensor_after.status, reg01_now, reg3b, reg3c);
     bool regs_ok = effective_ejected ? (reg3b != 0xFF && reg3c != 0xFF)
                                      : (reg3b == 0x00 && reg3c == 0x00);
     if (reg01_now != 0x22 || !sensor_after.present() || !sensor_after.idle_class() || !regs_ok) {
@@ -1497,6 +1571,7 @@ void magazine_load_film_impl(Genesys_Device* dev)
     try {
         run_magazine_program(dev, "load", load_result, &failed_op);
     } catch (const SaneException& e) {
+        log_load_reg32(load_result);
         // Name the step that did not complete, that much is known, and
         // it is the diagnosis the log needs. Say nothing about the
         // cause: a timeout at this op has more than one possible cause,
@@ -1527,6 +1602,7 @@ void magazine_load_film_impl(Genesys_Device* dev)
                             step, e.what());
     }
 
+    log_load_reg32(load_result);
     dev->interface->test_checkpoint("gl126_magazine_after_load");
 
     // The traverse's own completion was checked by the program; read the

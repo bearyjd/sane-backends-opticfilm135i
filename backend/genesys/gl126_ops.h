@@ -154,6 +154,11 @@ struct RunResult {
     std::vector<PollRecord> polls;
     std::vector<ReadRecord> reads;
     std::size_t ops_done = 0;  // completed ops; ties a failure to "no transfer after it"
+    /* The poll that ended the run with OpsFailure::PollTimeout, `polls`
+       0 when none did. `polls` above only ever holds the sites that
+       settled, so without this a failed run's log would lose what its
+       last poll actually read. */
+    PollRecord timed_out{};
 };
 
 /** Tunable wait policy for PollDataReady/PollClass (2 s timeout;

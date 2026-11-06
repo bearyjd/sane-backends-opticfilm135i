@@ -62,6 +62,10 @@ public:
 
     IUsbDevice& get_usb_device() override;
 
+    /* The mock itself, for a test to set its reply hook and read its
+       transfer log (test_usb_device.h). */
+    TestUsbDevice& test_usb_device();
+
     void sleep_us(unsigned microseconds) override;
 
     void record_progress_message(const char* msg) override;

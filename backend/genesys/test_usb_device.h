@@ -22,6 +22,9 @@
 #define BACKEND_GENESYS_TEST_USB_DEVICE_H
 
 #include "usb_device.h"
+#include <functional>
+#include <string>
+#include <vector>
 
 namespace genesys {
 
@@ -62,6 +65,40 @@ public:
     unsigned out_transfer_count() const { return out_transfer_count_; }
     void reset_out_transfer_count() { out_transfer_count_ = 0; }
 
+    /* Two more test-only aids, both off unless a test sets them, so every
+       other genesys test sees the mock exactly as before. Added for the
+       GL126 magazine load: its op programs check what the device answers
+       (an ack read must return 0x55, a motor completion poll a masked
+       status class), and a mock that only ever answers zeroes stops every
+       program at its first ack read, long before the polls a test needs
+       to reach.
+
+       The reply hook is called for every IN control transfer, after the
+       zero fill, and may overwrite the reply; with no hook the reply
+       stays all zeroes. */
+    using ControlInReply = std::function<void(int reg, int value, int index, int length,
+                                              std::uint8_t* data)>;
+    void set_control_in_reply(ControlInReply reply) { control_in_reply_ = std::move(reply); }
+
+    /* The transfer log: one line per transfer, in order, with its
+       setup fields and every byte sent or answered, so a test can assert
+       that two builds put the identical sequence on the wire, not just
+       the same number of transfers. TestScannerInterface also records
+       here (record_transfer()) its register and buffer methods, which
+       never reach this mock but are USB traffic on hardware, and its
+       sleeps, so a stray register read or a changed wait shows up too.
+
+       A poll loop (a read, a sleep, the same read, the same sleep, ...)
+       is stored once, followed by "REPEAT 2 x<n>": the two lines above
+       it came n more times. A test-mode poll that never matches spins
+       for its whole real-time budget, millions of iterations, which
+       could not be stored line by line, and how many it gets in that
+       time depends on the host. Starting a recording clears the log. */
+    void set_record_transfers(bool record);
+    bool records_transfers() const { return record_transfers_; }
+    void record_transfer(const std::string& line);
+    std::vector<std::string> transfer_log() const;
+
 private:
     void assert_is_open() const;
 
@@ -71,6 +108,15 @@ private:
     std::uint16_t product_ = 0;
     std::uint16_t bcd_device_ = 0;
     unsigned out_transfer_count_ = 0;
+    ControlInReply control_in_reply_;
+    bool record_transfers_ = false;
+    std::vector<std::string> transfer_log_;
+    // The pair repetition being counted (see transfer_log()): how many
+    // more times the last two stored lines came, and the first line of
+    // a possible next repetition, held until the second one arrives.
+    unsigned repeat_count_ = 0;
+    bool held_ = false;
+    std::string held_line_;
 };
 
 } // namespace genesys
