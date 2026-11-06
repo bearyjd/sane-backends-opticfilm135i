@@ -899,6 +899,67 @@ constexpr unsigned kEdgePresentReadsNeeded = 5;
 constexpr unsigned kEdgeSettleMs = 600;
 constexpr unsigned kEdgeTimeoutMs = 120000;
 
+/* ------------------------------------------------- the interrupt drain
+
+   CANDIDATE, hypothesis unproven. The Python driver reads the interrupt
+   endpoint (EP 0x83, button and sensor events) after the jog and again
+   after the reinsert, before LOAD (of135i/loadflow.py,
+   usbio.drain_events()); this backend never read it. The hypothesis is
+   only that an event left latched there might change how LOAD's engaging
+   feed behaves. These reads mirror the driver's: 1-byte reads of 50 ms
+   each, at most 8, until the endpoint answers anything but an event. The
+   events are logged and discarded, never acted on. Read-only and never
+   a failure: a timeout (the idle endpoint), an error and the cap all just
+   end the drain. No register access, no sleep.
+
+   The switch: set kDrainInterruptEvents to false and the two calls make
+   no transfer at all, the logging commit's transfer sequence exactly. */
+constexpr bool kDrainInterruptEvents = true;
+constexpr int kInterruptEndpoint = 0x83;
+constexpr unsigned kInterruptDrainTimeoutMs = 50;
+constexpr unsigned kInterruptDrainMaxReads = 8;
+
+void drain_interrupt_events(Genesys_Device* dev, const char* where)
+{
+    if (!kDrainInterruptEvents) {
+        return;
+    }
+    try {
+        IUsbDevice& usb = dev->interface->get_usb_device();
+        std::string events;
+        unsigned reads = 0;
+        SANE_Status status = SANE_STATUS_GOOD;
+        while (reads < kInterruptDrainMaxReads) {
+            std::uint8_t event = 0;
+            std::size_t size = 1;
+            status = usb.interrupt_read(kInterruptEndpoint, &event, &size,
+                                        kInterruptDrainTimeoutMs);
+            ++reads;
+            if (status != SANE_STATUS_GOOD || size == 0) {
+                break;
+            }
+            char code[8];
+            std::snprintf(code, sizeof(code), "%s0x%02x", events.empty() ? "" : " ", event);
+            events += code;
+        }
+        char ended[64];
+        if (status != SANE_STATUS_GOOD) {
+            std::snprintf(ended, sizeof(ended), "on status \"%s\"", sane_strstatus(status));
+        } else if (reads == kInterruptDrainMaxReads) {
+            std::snprintf(ended, sizeof(ended), "at the cap of %u reads",
+                          kInterruptDrainMaxReads);
+        } else {
+            std::snprintf(ended, sizeof(ended), "on an empty read");
+        }
+        DBG(DBG_info, "gl126: magazine interrupt drain %s: events %s, %u read%s, ended %s\n",
+            where, events.empty() ? "none" : events.c_str(), reads, reads == 1 ? "" : "s",
+            ended);
+    } catch (const std::exception& e) {
+        DBG(DBG_info, "gl126: magazine interrupt drain %s: not read (%s), not a failure\n",
+            where, e.what());
+    }
+}
+
 enum class EdgeWaitOutcome {
     Seen,            // clear, then present again: the reseat happened
     TimeoutNoClear,  // the sensor never read clear, it did not come loose
@@ -1467,6 +1528,7 @@ void magazine_load_film_impl(Genesys_Device* dev)
         RunResult jog_result;
         run_magazine_program(dev, "jog", jog_result);
         dev->interface->test_checkpoint("gl126_magazine_after_jog");
+        drain_interrupt_events(dev, "after the jog");
     }
 
     if (!effective_ejected) {
@@ -1565,6 +1627,13 @@ void magazine_load_film_impl(Genesys_Device* dev)
         run_magazine_program(dev, "open", open_result);
         dev->interface->test_checkpoint("gl126_magazine_after_next_strip_open");
     }
+
+    /* After the settle (and, on the ejected path, after OPEN), right
+       before LOAD: the driver's "after the reinsert" drain. Its
+       --next-strip has no edge wait and no drain here; this backend's
+       ejected path waits for the reseat like the full path, so it drains
+       here too. */
+    drain_interrupt_events(dev, "before the load");
 
     RunResult load_result;
     std::size_t failed_op = static_cast<std::size_t>(-1);

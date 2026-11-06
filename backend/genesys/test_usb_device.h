@@ -51,6 +51,21 @@ public:
                      std::uint8_t* data) override;
     void bulk_read(std::uint8_t* buffer, std::size_t* size) override;
     void bulk_write(const std::uint8_t* buffer, std::size_t* size) override;
+    SANE_Status interrupt_read(int endpoint, std::uint8_t* buffer, std::size_t* size,
+                               unsigned timeout_ms) override;
+
+    /* The interrupt endpoint's script, off unless a test sets it. Added
+       for the GL126 magazine load's interrupt drain: each interrupt read
+       answers the next entry, either a 1-byte event (0..255) or, as
+       -status, a sanei status (-SANE_STATUS_IO_ERROR is what sanei_usb
+       returns for a timeout). Once the script is exhausted, or with no
+       script, every read answers SANE_STATUS_IO_ERROR with no data: an
+       idle endpoint. Like the IN control transfers these reads are not
+       OUT transfers, so out_transfer_count() does not count them; the
+       transfer log records each one ("INT IN ep=0x83 len=1: 48" or
+       "INT IN ep=0x83 len=1: status 9"). Setting a script replaces the
+       previous one. */
+    void set_interrupt_script(std::vector<int> script);
 
     /* How many OUT transfers (a control_msg with rtype != REQUEST_TYPE_IN,
        or a bulk_write) this mock has answered since the last reset,
@@ -117,6 +132,8 @@ private:
     unsigned repeat_count_ = 0;
     bool held_ = false;
     std::string held_line_;
+    std::vector<int> interrupt_script_;
+    std::size_t interrupt_step_ = 0;
 };
 
 } // namespace genesys

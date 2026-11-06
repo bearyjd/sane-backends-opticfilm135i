@@ -129,6 +129,31 @@ void UsbDevice::bulk_write(const std::uint8_t* buffer, std::size_t* size)
     TIE(sanei_usb_write_bulk(device_num_, buffer, size));
 }
 
+/* sanei_usb has one libusb timeout for bulk and interrupt reads alike and
+   no getter for it, so the read sets the short timeout and puts back
+   sanei_usb's default (30 s) afterwards, the convention gl646.cpp already
+   follows. Nothing in this backend's GL126 path sets any other value. */
+constexpr int kSaneiUsbDefaultTimeoutMs = 30 * 1000;
+
+SANE_Status UsbDevice::interrupt_read(int endpoint, std::uint8_t* buffer, std::size_t* size,
+                                      unsigned timeout_ms)
+{
+    assert_is_open();
+    if (sanei_usb_get_endpoint(device_num_, USB_DIR_IN | USB_ENDPOINT_TYPE_INTERRUPT)
+            != endpoint)
+    {
+        *size = 0;
+        return SANE_STATUS_UNSUPPORTED;
+    }
+    sanei_usb_set_timeout(static_cast<SANE_Int>(timeout_ms));
+    SANE_Status status = sanei_usb_read_int(device_num_, buffer, size);
+    sanei_usb_set_timeout(kSaneiUsbDefaultTimeoutMs);
+    if (status != SANE_STATUS_GOOD) {
+        *size = 0;
+    }
+    return status;
+}
+
 void UsbDevice::assert_is_open() const
 {
     if (!is_open()) {

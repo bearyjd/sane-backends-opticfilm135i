@@ -57,6 +57,15 @@ public:
     virtual void bulk_read(std::uint8_t* buffer, std::size_t* size) = 0;
     virtual void bulk_write(const std::uint8_t* buffer, std::size_t* size) = 0;
 
+    /* One interrupt IN read of up to *size bytes from `endpoint`, waiting
+       at most `timeout_ms`. Unlike the methods above it never throws: an
+       idle interrupt endpoint (a timeout) is the normal answer, so the
+       sanei status is returned as is and *size holds the bytes read (0
+       on anything but SANE_STATUS_GOOD). No transfer is made, and
+       SANE_STATUS_UNSUPPORTED is returned, unless `endpoint` is the
+       device's interrupt IN endpoint. */
+    virtual SANE_Status interrupt_read(int endpoint, std::uint8_t* buffer, std::size_t* size,
+                                       unsigned timeout_ms) = 0;
 };
 
 class UsbDevice : public IUsbDevice {
@@ -83,6 +92,8 @@ public:
                      std::uint8_t* data) override;
     void bulk_read(std::uint8_t* buffer, std::size_t* size) override;
     void bulk_write(const std::uint8_t* buffer, std::size_t* size) override;
+    SANE_Status interrupt_read(int endpoint, std::uint8_t* buffer, std::size_t* size,
+                               unsigned timeout_ms) override;
 
 private:
 

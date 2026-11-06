@@ -155,6 +155,41 @@ void TestUsbDevice::bulk_write(const std::uint8_t* buffer, std::size_t* size)
     }
 }
 
+SANE_Status TestUsbDevice::interrupt_read(int endpoint, std::uint8_t* buffer, std::size_t* size,
+                                          unsigned timeout_ms)
+{
+    DBG_HELPER_ARGS(dbg, "endpoint: 0x%02x, size: %zu, timeout: %u ms", endpoint, *size,
+                    timeout_ms);
+    assert_is_open();
+    std::size_t requested = *size;
+    SANE_Status status = SANE_STATUS_IO_ERROR;
+    *size = 0;
+    if (interrupt_step_ < interrupt_script_.size()) {
+        int entry = interrupt_script_[interrupt_step_++];
+        if (entry >= 0 && requested >= 1) {
+            buffer[0] = static_cast<std::uint8_t>(entry);
+            *size = 1;
+            status = SANE_STATUS_GOOD;
+        } else if (entry < 0) {
+            status = static_cast<SANE_Status>(-entry);
+        }
+    }
+    if (record_transfers_) {
+        char head[64];
+        std::snprintf(head, sizeof(head), "INT IN ep=0x%02x len=%zu:", endpoint, requested);
+        record_transfer(status == SANE_STATUS_GOOD
+                            ? head + format_bytes(buffer, *size)
+                            : std::string(head) + " status " + std::to_string(status));
+    }
+    return status;
+}
+
+void TestUsbDevice::set_interrupt_script(std::vector<int> script)
+{
+    interrupt_script_ = std::move(script);
+    interrupt_step_ = 0;
+}
+
 void TestUsbDevice::set_record_transfers(bool record)
 {
     record_transfers_ = record;
