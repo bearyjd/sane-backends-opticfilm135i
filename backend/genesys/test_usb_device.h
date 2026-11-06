@@ -80,6 +80,19 @@ public:
                                               std::uint8_t* data)>;
     void set_control_in_reply(ControlInReply reply) { control_in_reply_ = std::move(reply); }
 
+    /* The other direction, for a test that checks what is written, not
+       only answers what is read: the GL126 magazine replay
+       (tests/gl126_magazine_probe.cpp in the driver repo) matches every
+       transfer against a recording of a real unit. Called for every
+       control OUT (with its setup fields) and every bulk transfer
+       (setup fields 0; for a bulk read, after the zero fill), before
+       the transfer is logged; it cannot change anything. Off unless set. */
+    enum class Transfer { ControlOut, BulkOut, BulkIn };
+    using TransferObserver = std::function<void(Transfer kind, int reg, int value, int index,
+                                                std::size_t length,
+                                                const std::uint8_t* data)>;
+    void set_transfer_observer(TransferObserver observer) { observer_ = std::move(observer); }
+
     /* The transfer log: one line per transfer, in order, with its
        setup fields and every byte sent or answered, so a test can assert
        that two builds put the identical sequence on the wire, not just
@@ -109,6 +122,7 @@ private:
     std::uint16_t bcd_device_ = 0;
     unsigned out_transfer_count_ = 0;
     ControlInReply control_in_reply_;
+    TransferObserver observer_;
     bool record_transfers_ = false;
     std::vector<std::string> transfer_log_;
     // The pair repetition being counted (see transfer_log()): how many

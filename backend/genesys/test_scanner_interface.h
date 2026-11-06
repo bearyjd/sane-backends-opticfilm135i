@@ -103,6 +103,18 @@ public:
        uncounted. */
     void seed_register(std::uint16_t address, std::uint8_t value) { cached_regs_.update(address, value); }
 
+    /* For a replay of a recorded unit (the GL126 magazine replay,
+       tests/gl126_magazine_probe.cpp in the driver repo): with this on,
+       read_register() and write_register() also go to the mock, as the
+       control transfers ScannerInterfaceUsb sends for them on a GL124-
+       class chip (GL126 included), so the mock's reply hook answers
+       register reads too, in one order with the rest of the wire. A read
+       then returns the reply's first byte and, like the real interface,
+       throws if the second is not 0x55; the cache is updated with what
+       was read or written. Off by default: every other test reads the
+       cache as before. */
+    void set_registers_on_wire(bool on) { registers_on_wire_ = on; }
+
 private:
     Genesys_Device* dev_;
 
@@ -118,6 +130,7 @@ private:
     std::map<std::string, std::string> key_values_;
 
     unsigned cache_write_count_ = 0;
+    bool registers_on_wire_ = false;
 };
 
 } // namespace genesys

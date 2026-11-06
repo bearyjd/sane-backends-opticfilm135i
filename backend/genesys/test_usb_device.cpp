@@ -123,6 +123,10 @@ void TestUsbDevice::control_msg(int rtype, int reg, int value, int index, int le
         }
     } else {
         ++out_transfer_count_;
+        if (observer_) {
+            observer_(Transfer::ControlOut, reg, value, index,
+                      static_cast<std::size_t>(length), data);
+        }
     }
     if (record_transfers_) {
         char head[64];
@@ -138,6 +142,9 @@ void TestUsbDevice::bulk_read(std::uint8_t* buffer, std::size_t* size)
     DBG_HELPER(dbg);
     assert_is_open();
     std::memset(buffer, 0, *size);
+    if (observer_) {
+        observer_(Transfer::BulkIn, 0, 0, 0, *size, buffer);
+    }
     if (record_transfers_) {
         record_transfer("BULK IN len=" + std::to_string(*size) + ":" +
                         format_bytes(buffer, *size));
@@ -149,6 +156,9 @@ void TestUsbDevice::bulk_write(const std::uint8_t* buffer, std::size_t* size)
     DBG_HELPER(dbg);
     assert_is_open();
     ++out_transfer_count_;
+    if (observer_) {
+        observer_(Transfer::BulkOut, 0, 0, 0, *size, buffer);
+    }
     if (record_transfers_) {
         record_transfer("BULK OUT len=" + std::to_string(*size) + ":" +
                         format_bytes(buffer, *size));

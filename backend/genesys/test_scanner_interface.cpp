@@ -22,6 +22,7 @@
 
 #include "test_scanner_interface.h"
 #include "device.h"
+#include "low.h"
 #include <cstdarg>
 #include <cstdio>
 #include <cstring>
@@ -154,6 +155,21 @@ bool TestScannerInterface::is_mock() const
 
 std::uint8_t TestScannerInterface::read_register(std::uint16_t address)
 {
+    if (registers_on_wire_) {
+        // ScannerInterfaceUsb::read_register's GL124-class transfer.
+        std::uint8_t value2x8[2] = {0, 0};
+        std::uint16_t usb_value = VALUE_GET_REGISTER;
+        if (address > 0xff) {
+            usb_value |= 0x100;
+        }
+        std::uint16_t address16 = static_cast<std::uint16_t>(0x22 + (address << 8));
+        usb_dev_.control_msg(REQUEST_TYPE_IN, REQUEST_BUFFER, usb_value, address16, 2, value2x8);
+        if (value2x8[1] != 0x55) {
+            throw SaneException(SANE_STATUS_IO_ERROR, "invalid read, scanner unplugged?");
+        }
+        cached_regs_.update(address, value2x8[0]);
+        return value2x8[0];
+    }
     std::uint8_t value = cached_regs_.get(address);
     record_transfer(usb_dev_, "REG R 0x%04x: %02x", address, value);
     return value;
@@ -161,6 +177,18 @@ std::uint8_t TestScannerInterface::read_register(std::uint16_t address)
 
 void TestScannerInterface::write_register(std::uint16_t address, std::uint8_t value)
 {
+    if (registers_on_wire_) {
+        // ScannerInterfaceUsb::write_register's GL124-class transfer;
+        // the mock counts it as an OUT transfer itself.
+        std::uint8_t buffer[2] = {static_cast<std::uint8_t>(address & 0xff), value};
+        std::uint16_t usb_value = VALUE_SET_REGISTER;
+        if (address > 0xff) {
+            usb_value |= 0x100;
+        }
+        usb_dev_.control_msg(REQUEST_TYPE_OUT, REQUEST_BUFFER, usb_value, INDEX, 2, buffer);
+        cached_regs_.update(address, value);
+        return;
+    }
     record_transfer(usb_dev_, "REG W 0x%04x: %02x", address, value);
     cached_regs_.update(address, value);
     ++cache_write_count_;
