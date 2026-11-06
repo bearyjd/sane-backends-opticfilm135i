@@ -885,17 +885,45 @@ MagazineSensor read_magazine_sensor(Genesys_Device* dev)
    A plain C++ read-only poll loop, not an op program: there is nothing
    to replay here, only a register to watch. Poll reg 0x101 every
    100 ms; require the loader sensor clear on 2 consecutive reads, then
-   present on 5 consecutive reads, then a 600 ms settle (the vendor's
-   own insert-to-LOAD delay) before returning Seen. Timeout at 120 s
+   present on kEdgePresentReadsNeeded consecutive reads (a clear read
+   inside that window starts it over), then a 600 ms settle before
+   returning Seen. Timeout at 120 s
    (capped, test mode only, by $SANE_GL126_TEST_POLL_CAP_MS, the same gate
    magazine_policy() uses, so a shorter wait can never reach real
    hardware). No register write of any kind occurs in this loop: only
    read_register, sleep_ms and the one test_checkpoint() per poll a
    probe can re-seed the mock from. */
 
+/* The edge wait's timing, the one block to tune.
+
+   CANDIDATE, unproven on the unit it is meant for: kEdgePresentReadsNeeded
+   was 5 (500 ms) in v9 and is 25 (2.5 s) here, so LOAD starts ~3 s
+   after the first present read instead of ~1 s. Setting it back to 5
+   restores v9's behaviour (only the log line naming these values stays
+   new); nothing else depends on it. The only difference
+   it makes is that delay: the same reads (more of them), the same
+   transfers after the window in the same order, and a push-in in the
+   last ~2.5 s of the 120 s budget now times out to Released (press Load
+   film again) instead of loading.
+
+   Why longer: a SANE frontend cannot prompt, so the backend, not the
+   operator, decides when the magazine is at the stop. The Python driver
+   starts LOAD only when the operator presses Enter and completed the
+   load on the owner's unit; the backend failed it there at op 24 after
+   an edge 177 polls (~17.7 s) into the wait (2026-11-05). 2.5 s is a
+   margin chosen from a 2-3 s range, not a measured value: no measurement
+   of how long after the first present read a magazine reaches the stop
+   exists. The 600 ms settle stays as it was (its basis, the vendor
+   reacting 0.6 s after an event in Test 81, is weak: Test 97 found those
+   events were most likely Eject presses); a longer settle would only
+   widen the blind gap the post-settle check fails terminally in, while
+   every read in the window is a re-check that goes back to waiting.
+   The maintainer's unit loaded 5 of 5 with the 5-read window (Test 92:
+   edges after 43, 85, 54 and 182 polls), so a longer window should not
+   cost it anything but the delay. */
 constexpr unsigned kEdgePollIntervalMs = 100;
 constexpr unsigned kEdgeClearReadsNeeded = 2;
-constexpr unsigned kEdgePresentReadsNeeded = 5;
+constexpr unsigned kEdgePresentReadsNeeded = 25;
 constexpr unsigned kEdgeSettleMs = 600;
 constexpr unsigned kEdgeTimeoutMs = 120000;
 
@@ -944,6 +972,9 @@ EdgeWaitOutcome wait_for_magazine_edge(Genesys_Device* dev)
     std::uint8_t last_val = 0;
 
     DBG(DBG_info, "gl126: magazine edge wait started (budget %u ms)\n", budget_ms);
+    DBG(DBG_info, "gl126: magazine edge wait: %u clear reads, then %u present reads, "
+        "%u ms apart, then a %u ms settle\n", kEdgeClearReadsNeeded, kEdgePresentReadsNeeded,
+        kEdgePollIntervalMs, kEdgeSettleMs);
 
     while (polls < max_polls) {
         std::uint8_t status = dev->interface->read_register(0x101);
@@ -1521,9 +1552,9 @@ void magazine_load_film_impl(Genesys_Device* dev)
         return;
     }
 
-    // The edge was seen: reg 0x101 read present for 5 consecutive polls
-    // after 2 consecutive clear ones, which already proves bit 0x08, but
-    // not the whole status class. (1) A fresh read after the settle
+    // The edge was seen: reg 0x101 read present for kEdgePresentReadsNeeded
+    // consecutive polls after 2 consecutive clear ones, which already
+    // proves bit 0x08, but not the whole status class. (1) A fresh read after the settle
     // checks the DONE class too (the 0xf8-shaped pattern seen on
     // hardware after a load): a magazine pulled back out during the
     // 600 ms settle, or a present-but-busy class, must not reach LOAD.
