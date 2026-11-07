@@ -21,7 +21,7 @@
 :interface "USB"
 :usbid "0x07b3" "0x1436"
 :status :basic
-:comment "GL126. 35mm film scanner: one frame of the strip per scan, selected by the 'frame' option (1-6); the magazine is loaded and ejected with the 'load-film' and 'eject-film' options. 600/1200/2400/3600/7200 dpi and an infrared pass. Experimental: developed and tested on a single unit."
+:comment "GL126. 35mm film scanner: one frame of the strip per scan, selected by the 'frame' option (1-6); the magazine is loaded and ejected with the 'load-film' and 'eject-film' options. Press load-film first, then take the magazine out of the slot and push it back in to the mechanical stop; the load starts by itself. 600/1200/2400/3600/7200 dpi and an infrared pass. Experimental: developed and tested on a single unit."
 
 :model "OpticFilm 7200"
 :interface "USB"

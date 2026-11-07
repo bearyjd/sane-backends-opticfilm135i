@@ -45,6 +45,19 @@ slightly different from the models mentioned above, please let me know.
 If you own a scanner that isn't detected by the genesys backend but has a GL646,
 GL841, GL843, GL847, GL124 or GL126 chipset, you can try to add it to the backend.
 .PP
+.SH "FILM MAGAZINE (GL126)"
+On the GL126 35mm film scanner, press (or pass)
+.B Load film
+first. When the backend logs that it is waiting for the magazine, take the magazine
+out of the slot and push it back in to the mechanical stop; the load then starts by itself.
+To change strips, use
+.BR "Eject film" ,
+swap the strip, push the magazine in to the mechanical stop and press
+.B Load film
+again. If a load fails, take the magazine out, power-cycle the scanner, press
+.B Load film
+again and reseat the magazine; if it fails again, keep the log and report it.
+.PP
 .SH "CALIBRATION"
 To give correct image quality, sheet fed scanners need to be calibrated using the
 calibration sheet sold with the scanner. To do calibration, you must insert this target

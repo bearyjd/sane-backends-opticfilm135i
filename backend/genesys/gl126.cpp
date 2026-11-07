@@ -944,6 +944,8 @@ EdgeWaitOutcome wait_for_magazine_edge(Genesys_Device* dev)
     std::uint8_t last_val = 0;
 
     DBG(DBG_info, "gl126: magazine edge wait started (budget %u ms)\n", budget_ms);
+    DBG(DBG_info, "gl126: magazine: take the magazine out of the slot now, then push it "
+        "back in to the mechanical stop and let go; the load starts by itself\n");
 
     while (polls < max_polls) {
         std::uint8_t status = dev->interface->read_register(0x101);
@@ -1229,7 +1231,10 @@ void run_magazine_program(Genesys_Device* dev, const char* name, RunResult& out,
         throw SaneException(status,
                             "gl126: %s in the magazine %s sequence at op %zu (%s). Nothing "
                             "further was written and no recovery was attempted; the session "
-                            "is blocked. Read the log before anything else is attempted.",
+                            "is blocked. Read the log before anything else is attempted. Next "
+                            "step: take the magazine out, power-cycle the scanner, press "
+                            "Load film again and reseat the magazine; if it fails again, "
+                            "keep the log and report it.",
                             what, name, e.op_index, e.what());
     }
     for (const PollRecord& p : out.polls) {
