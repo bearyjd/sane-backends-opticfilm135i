@@ -168,7 +168,8 @@ struct RunResult {
     time. */
 struct RunPolicy {
     unsigned poll_timeout_ms = 2000;
-    unsigned poll_interval_ms = 4;
+    /* EXPERIMENT: match the Python driver's ~20 ms cadence (was 4). */
+    unsigned poll_interval_ms = 20;
     unsigned class_timeout_ms = 5000;
     /** Budget for PollMasked: POSITION's W3 (class F, FEEDL-scaled, see
         position_timeout_ms()) and PARK's Wait A/Wait B share this one
