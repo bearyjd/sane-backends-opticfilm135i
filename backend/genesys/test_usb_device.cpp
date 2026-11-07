@@ -142,6 +142,9 @@ void TestUsbDevice::bulk_read(std::uint8_t* buffer, std::size_t* size)
     DBG_HELPER(dbg);
     assert_is_open();
     std::memset(buffer, 0, *size);
+    if (bulk_in_reply_) {
+        bulk_in_reply_(*size, buffer);
+    }
     if (observer_) {
         observer_(Transfer::BulkIn, 0, 0, 0, *size, buffer);
     }

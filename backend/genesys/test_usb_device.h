@@ -93,6 +93,15 @@ public:
                                                 const std::uint8_t* data)>;
     void set_transfer_observer(TransferObserver observer) { observer_ = std::move(observer); }
 
+    /* The bulk-IN counterpart of the reply hook: called for every bulk
+       read, after the zero fill and before the observer, and may
+       overwrite the buffer. For a test that stands in for image data the
+       mock does not have (the GL126 scan replay feeds the backend's
+       calibration statistics-matched fills so the values it computes from
+       the image come out as recorded). Off unless set. */
+    using BulkInReply = std::function<void(std::size_t length, std::uint8_t* data)>;
+    void set_bulk_in_reply(BulkInReply reply) { bulk_in_reply_ = std::move(reply); }
+
     /* The transfer log: one line per transfer, in order, with its
        setup fields and every byte sent or answered, so a test can assert
        that two builds put the identical sequence on the wire, not just
@@ -114,6 +123,8 @@ public:
 
 private:
     void assert_is_open() const;
+
+    BulkInReply bulk_in_reply_;
 
     std::string name_;
     bool is_open_ = false;
